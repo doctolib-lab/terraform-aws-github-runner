@@ -45,7 +45,11 @@ output "webhook" {
 }
 
 output "ssm_parameters" {
-  value = module.ssm.parameters
+  value = { for k, v in local.github_app_parameters : k => {
+    name = v.name
+    arn  = v.arn
+    }
+  }
 }
 
 output "instance_termination_watcher" {
