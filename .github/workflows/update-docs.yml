@@ -86,6 +86,10 @@ jobs:
           path: .cache
           restore-keys: |
             mkdocs-material-
-      - run: pip install mkdocs-material
-      - run: pip install mkdocs-material-extensions
-      - run: mkdocs gh-deploy --force -c -b gh-pages
+      - run: pip install --require-hashes -r .github/workflows/mkdocs/requirements.txt
+      - name: Build and deploy docs (main branch)
+        if: github.ref == 'refs/heads/main'
+        run: mkdocs gh-deploy --force -c -b gh-pages
+      - name: Build docs only (other branches)
+        if: github.ref != 'refs/heads/main'
+        run: mkdocs build
