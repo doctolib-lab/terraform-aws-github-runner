@@ -660,10 +660,11 @@ variable "credit_specification" {
 }
 
 variable "cpu_options" {
-  description = "The CPU options for the instance. See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/launch_template#cpu-options for details. Note that not all instance types support CPU options, see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-optimize-cpu.html#instance-cpu-options"
+  description = "The CPU options for the instance. See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/launch_template#cpu-options for details. Note that not all instance types support CPU options, see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-optimize-cpu.html#instance-cpu-options. Set `nested_virtualization = true` to enable nested KVM/Hyper-V on supported instance families (C8i/M8i/R8i, see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html)."
   type = object({
-    core_count       = number
-    threads_per_core = number
+    core_count            = number
+    threads_per_core      = number
+    nested_virtualization = optional(bool)
   })
   default = null
 }
