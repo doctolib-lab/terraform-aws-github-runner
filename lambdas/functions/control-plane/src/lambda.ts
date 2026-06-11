@@ -54,6 +54,15 @@ export async function scaleUpHandler(event: SQSEvent, context: Context): Promise
     if (e instanceof ScaleError) {
       batchItemFailures.push(...e.toBatchItemFailures(sqsMessages));
       logger.warn(`${e.detailedMessage} A retry will be attempted via SQS.`, { error: e });
+    } else if ((e as { $fault?: string })?.$fault === 'server') {
+      // Transient AWS service error (e.g., EC2 503 Unavailable from DescribeInstances).
+      // Mark every message in the batch as failed so SQS retries them rather than
+      // silently dropping the scale-up requests.
+      batchItemFailures.push(...sqsMessages.map(({ messageId }) => ({ itemIdentifier: messageId })));
+      logger.warn(
+        `Transient error processing batch (size: ${sqsMessages.length}): ${(e as Error).message}, all messages will be retried via SQS.`,
+        { error: e },
+      );
     } else {
       logger.error(`Error processing batch (size: ${sqsMessages.length}): ${(e as Error).message}, ignoring batch`, {
         error: e,
