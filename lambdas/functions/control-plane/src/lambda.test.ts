@@ -208,7 +208,7 @@ describe('Test scale up lambda wrapper.', () => {
       await scaleUpHandler(multiRecordEvent, context);
     });
 
-    it('Should return all failed messages when scaleUp throws non-ScaleError', async () => {
+    it('Should drop the batch when scaleUp throws a non-retryable error', async () => {
       const records = createMultipleRecords(2);
       const multiRecordEvent: SQSEvent = { Records: records };
 
@@ -216,6 +216,22 @@ describe('Test scale up lambda wrapper.', () => {
 
       const result = await scaleUpHandler(multiRecordEvent, context);
       expect(result).toEqual({ batchItemFailures: [] });
+    });
+
+    it('Should retry all messages when scaleUp throws a transient AWS server error', async () => {
+      const records = createMultipleRecords(2);
+      const multiRecordEvent: SQSEvent = { Records: records };
+
+      const transientError = Object.assign(new Error('The service is unavailable. Please try again shortly.'), {
+        $fault: 'server',
+        $metadata: { httpStatusCode: 503, attempts: 3 },
+      });
+      vi.mocked(scaleUp).mockRejectedValue(transientError);
+
+      const result = await scaleUpHandler(multiRecordEvent, context);
+      expect(result).toEqual({
+        batchItemFailures: [{ itemIdentifier: 'message-0' }, { itemIdentifier: 'message-1' }],
+      });
     });
 
     it('Should throw when scaleUp throws ScaleError', async () => {
