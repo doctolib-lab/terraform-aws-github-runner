@@ -102,11 +102,47 @@ function getRunnerInfo(runningInstances: DescribeInstancesResult) {
   return runners;
 }
 
-export async function terminateRunner(instanceId: string): Promise<void> {
-  logger.debug(`Runner '${instanceId}' will be terminated.`);
+// AWS TerminateInstances accepts up to 1000 InstanceIds per call; we keep batches
+// at 100 to bound payload + blast radius (a failed batch bisects, see terminateBatch).
+const TERMINATE_BATCH_SIZE = 100;
+
+export async function terminateRunners(instanceIds: string[]): Promise<void> {
+  if (instanceIds.length === 0) return; // empty InstanceIds errors at the API
   const ec2 = getTracedAWSV3Client(new EC2Client({ region: process.env.AWS_REGION }));
-  await ec2.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }));
-  logger.debug(`Runner ${instanceId} has been terminated.`);
+  for (let i = 0; i < instanceIds.length; i += TERMINATE_BATCH_SIZE) {
+    await terminateBatch(ec2, instanceIds.slice(i, i + TERMINATE_BATCH_SIZE));
+  }
+}
+
+// Common path = 1 EC2 call for the whole batch. TerminateInstances is all-or-nothing
+// (one bad id throws InvalidInstanceID.NotFound and nothing is terminated), so on
+// error we BISECT. This is recursive: each half re-enters terminateBatch and, if it
+// also throws, bisects again — the recursion keeps halving until every batch is
+// either terminated whole or down to a single id that is logged and skipped. A
+// failure isolates each bad id in O(log n) levels while all good ids still terminate.
+async function terminateBatch(ec2: EC2Client, batch: string[]): Promise<void> {
+  try {
+    const res = await ec2.send(new TerminateInstancesCommand({ InstanceIds: batch }));
+    const terminated = new Set((res.TerminatingInstances ?? []).map((i) => i.InstanceId));
+    const missing = batch.filter((id) => !terminated.has(id));
+    if (missing.length) logger.warn(`Terminate returned no state change for: ${missing.join(', ')}`);
+    logger.debug(`Runners terminated: ${batch.join(', ')}`);
+  } catch (e) {
+    if (batch.length === 1) {
+      // base case — isolated, surface and move on
+      logger.error(`Failed to terminate runner '${batch[0]}'`, { error: e as Error });
+      return;
+    }
+    const mid = Math.ceil(batch.length / 2);
+    logger.warn(`Batch terminate failed (${batch.length} ids), bisecting.`, { error: e as Error });
+    await terminateBatch(ec2, batch.slice(0, mid)); // recurses; bisects again on repeat failure
+    await terminateBatch(ec2, batch.slice(mid));
+  }
+}
+
+// Back-compat thin wrapper — existing single-id callers keep working.
+export async function terminateRunner(instanceId: string): Promise<void> {
+  await terminateRunners([instanceId]);
 }
 
 export async function tag(instanceId: string, tags: Tag[]): Promise<void> {

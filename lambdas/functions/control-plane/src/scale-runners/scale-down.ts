@@ -10,7 +10,7 @@ import {
   createOctokitClient,
   getStoredInstallationId,
 } from '../github/auth';
-import { bootTimeExceeded, listEC2Runners, tag, untag, terminateRunner } from './../aws/runners';
+import { bootTimeExceeded, listEC2Runners, tag, untag, terminateRunners } from './../aws/runners';
 import { RunnerInfo, RunnerList } from './../aws/runners.d';
 import { GhRunners, githubCache } from './cache';
 import { ScalingDownConfig, getEvictionStrategy, getIdleRunnerCount } from './scale-down-config';
@@ -137,7 +137,9 @@ function runnerMinimumTimeExceeded(runner: RunnerInfo): boolean {
   return launchTimePlusMinimum < now;
 }
 
-async function removeRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): Promise<void> {
+// Returns the instanceId when the runner was successfully de-registered from GitHub,
+// so the caller can batch-terminate in one EC2 call. Returns undefined otherwise.
+async function removeRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): Promise<string | undefined> {
   const githubAppClient = await getOrCreateOctokit(ec2runner);
   try {
     const runnerList = ec2runner as unknown as RunnerList;
@@ -145,7 +147,7 @@ async function removeRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): Promi
       logger.info(
         `Runner '${ec2runner.instanceId}' has bypass-removal tag set, skipping removal. Remove the tag to allow scale-down.`,
       );
-      return;
+      return undefined;
     }
 
     const states = await Promise.all(
@@ -174,18 +176,21 @@ async function removeRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): Promi
       );
 
       if (statuses.every((status) => status == 204)) {
-        await terminateRunner(ec2runner.instanceId);
-        logger.info(`AWS runner instance '${ec2runner.instanceId}' is terminated and GitHub runner is de-registered.`);
+        logger.info(`GitHub runner de-registered for '${ec2runner.instanceId}', queued for termination.`);
+        return ec2runner.instanceId;
       } else {
         logger.error(`Failed to de-register GitHub runner: ${statuses}`);
+        return undefined;
       }
     } else {
       logger.info(`Runner '${ec2runner.instanceId}' cannot be de-registered, because it is still busy.`);
+      return undefined;
     }
   } catch (e) {
     logger.error(`Runner '${ec2runner.instanceId}' cannot be de-registered. Error: ${e}`, {
       error: e as Error,
     });
+    return undefined;
   }
 }
 
@@ -196,6 +201,7 @@ async function evaluateAndRemoveRunners(
   let idleCounter = getIdleRunnerCount(scaleDownConfigs);
   const evictionStrategy = getEvictionStrategy(scaleDownConfigs);
   const ownerTags = new Set(ec2Runners.map((runner) => runner.owner));
+  const toTerminate: string[] = [];
 
   for (const ownerTag of ownerTags) {
     const ec2RunnersFiltered = ec2Runners
@@ -221,10 +227,11 @@ async function evaluateAndRemoveRunners(
             logger.info(`Runner '${ec2Runner.instanceId}' will be kept idle.`);
           } else {
             logger.info(`Terminating all non busy runners.`);
-            await removeRunner(
+            const id = await removeRunner(
               ec2Runner,
               ghRunnersFiltered.map((runner: { id: number }) => runner.id),
             );
+            if (id) toTerminate.push(id);
           }
         }
       } else if (bootTimeExceeded(ec2Runner)) {
@@ -233,6 +240,11 @@ async function evaluateAndRemoveRunners(
         logger.debug(`Runner ${ec2Runner.instanceId} has not yet booted.`);
       }
     }
+  }
+
+  if (toTerminate.length > 0) {
+    logger.info(`Terminating ${toTerminate.length} runner(s): ${toTerminate.join(', ')}`);
+    await terminateRunners(toTerminate);
   }
 }
 
@@ -280,21 +292,27 @@ async function lastChanceCheckOrphanRunner(runner: RunnerList): Promise<boolean>
 async function terminateOrphan(environment: string): Promise<void> {
   try {
     const orphanRunners = await listEC2Runners({ environment, orphan: true });
+    const toTerminate: string[] = [];
 
     for (const runner of orphanRunners) {
       if (runner.runnerId) {
         const isOrphan = await lastChanceCheckOrphanRunner(runner);
         if (isOrphan) {
-          await terminateRunner(runner.instanceId);
+          toTerminate.push(runner.instanceId);
         } else {
           await unMarkOrphan(runner.instanceId);
         }
       } else {
         logger.info(`Terminating orphan runner '${runner.instanceId}'`);
-        await terminateRunner(runner.instanceId).catch((e) => {
-          logger.error(`Failed to terminate orphan runner '${runner.instanceId}'`, { error: e });
-        });
+        toTerminate.push(runner.instanceId);
       }
+    }
+
+    if (toTerminate.length > 0) {
+      logger.info(`Terminating ${toTerminate.length} orphan runner(s): ${toTerminate.join(', ')}`);
+      await terminateRunners(toTerminate).catch((e) => {
+        logger.error(`Failed to terminate orphan runners: ${toTerminate.join(', ')}`, { error: e });
+      });
     }
   } catch (e) {
     logger.warn(`Failure during orphan termination processing.`, { error: e });

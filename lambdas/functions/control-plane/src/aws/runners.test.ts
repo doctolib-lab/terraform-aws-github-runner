@@ -19,7 +19,7 @@ import 'aws-sdk-client-mock-jest/vitest';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ScaleError from './../scale-runners/ScaleError';
-import { createRunner, listEC2Runners, tag, terminateRunner, untag } from './runners';
+import { createRunner, listEC2Runners, tag, terminateRunner, terminateRunners, untag } from './runners';
 import type { RunnerInfo, RunnerInputParameters, RunnerType } from './runners.d';
 
 process.env.AWS_REGION = 'eu-east-1';
@@ -266,6 +266,66 @@ describe('terminate runner', () => {
     expect(mockEC2Client).toHaveReceivedCommandWith(TerminateInstancesCommand, {
       InstanceIds: [runner.instanceId],
     });
+  });
+});
+
+describe('terminateRunners', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEC2Client.reset();
+  });
+
+  it('does nothing for empty list', async () => {
+    await terminateRunners([]);
+    expect(mockEC2Client).not.toHaveReceivedCommand(TerminateInstancesCommand);
+  });
+
+  it('issues one EC2 call for a small batch', async () => {
+    mockEC2Client.on(TerminateInstancesCommand).resolves({
+      TerminatingInstances: [
+        { InstanceId: 'i-1', CurrentState: { Name: 'shutting-down' } },
+        { InstanceId: 'i-2', CurrentState: { Name: 'shutting-down' } },
+      ],
+    });
+    await terminateRunners(['i-1', 'i-2']);
+    expect(mockEC2Client).toHaveReceivedCommandTimes(TerminateInstancesCommand, 1);
+    expect(mockEC2Client).toHaveReceivedCommandWith(TerminateInstancesCommand, {
+      InstanceIds: ['i-1', 'i-2'],
+    });
+  });
+
+  it('chunks into batches of 100 for large lists', async () => {
+    mockEC2Client.on(TerminateInstancesCommand).resolves({});
+    const ids = Array.from({ length: 150 }, (_, i) => `i-${i}`);
+    await terminateRunners(ids);
+    expect(mockEC2Client).toHaveReceivedCommandTimes(TerminateInstancesCommand, 2);
+    expect(mockEC2Client).toHaveReceivedNthCommandWith(1, TerminateInstancesCommand, {
+      InstanceIds: ids.slice(0, 100),
+    });
+    expect(mockEC2Client).toHaveReceivedNthCommandWith(2, TerminateInstancesCommand, {
+      InstanceIds: ids.slice(100),
+    });
+  });
+
+  it('bisects on error and terminates good instances', async () => {
+    // i-bad always throws; i-good and i-also-good succeed
+    mockEC2Client
+      .on(TerminateInstancesCommand, { InstanceIds: ['i-good', 'i-bad', 'i-also-good'] })
+      .rejects(new Error('InvalidInstanceID.NotFound'))
+      .on(TerminateInstancesCommand, { InstanceIds: ['i-good', 'i-bad'] })
+      .rejects(new Error('InvalidInstanceID.NotFound'))
+      .on(TerminateInstancesCommand, { InstanceIds: ['i-bad'] })
+      .rejects(new Error('InvalidInstanceID.NotFound'))
+      .on(TerminateInstancesCommand, { InstanceIds: ['i-good'] })
+      .resolves({})
+      .on(TerminateInstancesCommand, { InstanceIds: ['i-also-good'] })
+      .resolves({});
+
+    await terminateRunners(['i-good', 'i-bad', 'i-also-good']);
+
+    // good instances must have been terminated despite the bad id
+    expect(mockEC2Client).toHaveReceivedCommandWith(TerminateInstancesCommand, { InstanceIds: ['i-good'] });
+    expect(mockEC2Client).toHaveReceivedCommandWith(TerminateInstancesCommand, { InstanceIds: ['i-also-good'] });
   });
 });
 

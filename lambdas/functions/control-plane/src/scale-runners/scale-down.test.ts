@@ -5,7 +5,7 @@ import nock from 'nock';
 
 import { RunnerInfo, RunnerList } from '../aws/runners.d';
 import * as ghAuth from '../github/auth';
-import { listEC2Runners, terminateRunner, tag, untag } from './../aws/runners';
+import { listEC2Runners, terminateRunners, tag, untag } from './../aws/runners';
 import { githubCache } from './cache';
 import { newestFirstStrategy, oldestFirstStrategy, scaleDown } from './scale-down';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -37,7 +37,7 @@ vi.mock('./../aws/runners', async (importOriginal) => {
     ...actual,
     tag: vi.fn(),
     untag: vi.fn(),
-    terminateRunner: vi.fn(),
+    terminateRunners: vi.fn(),
     listEC2Runners: vi.fn(),
   };
 });
@@ -68,7 +68,7 @@ const mockCreateClient = vi.mocked(ghAuth.createOctokitClient);
 const mockListRunners = vi.mocked(listEC2Runners);
 const mockTagRunners = vi.mocked(tag);
 const mockUntagRunners = vi.mocked(untag);
-const mockTerminateRunners = vi.mocked(terminateRunner);
+const mockTerminateRunners = vi.mocked(terminateRunners);
 
 export interface TestData {
   repositoryName: string;
@@ -208,7 +208,7 @@ describe('Scale down runners', () => {
         expect(listEC2Runners).toHaveBeenCalledWith({
           environment: ENVIRONMENT,
         });
-        expect(terminateRunner).not.toHaveBeenCalled();
+        expect(terminateRunners).not.toHaveBeenCalled();
         expect(mockOctokit.apps.getRepoInstallation).not.toHaveBeenCalled();
         expect(mockOctokit.apps.getRepoInstallation).not.toHaveBeenCalled();
       });
@@ -303,7 +303,7 @@ describe('Scale down runners', () => {
         await scaleDown();
 
         // assert
-        expect(terminateRunner).not.toHaveBeenCalled();
+        expect(terminateRunners).not.toHaveBeenCalled();
         checkNonTerminated(runners);
       });
 
@@ -407,7 +407,7 @@ describe('Scale down runners', () => {
 
         // assert
         expect(mockUntagRunners).toHaveBeenCalledWith(orphanRunner.instanceId, [{ Key: 'ghr:orphan', Value: 'true' }]);
-        expect(mockTerminateRunners).not.toHaveBeenCalledWith(orphanRunner.instanceId);
+        expect(mockTerminateRunners.mock.calls.flatMap((c) => c[0] as string[])).not.toContain(orphanRunner.instanceId);
 
         // arrange
         if (type === 'Repo') {
@@ -424,7 +424,7 @@ describe('Scale down runners', () => {
         await scaleDown();
 
         // assert
-        expect(mockTerminateRunners).toHaveBeenCalledWith(orphanRunner.instanceId);
+        expect(mockTerminateRunners.mock.calls.flatMap((c) => c[0] as string[])).toContain(orphanRunner.instanceId);
       });
 
       it('Should handle 404 error when checking orphaned runner (JIT) - treat as orphaned', async () => {
@@ -463,7 +463,7 @@ describe('Scale down runners', () => {
         await scaleDown();
 
         // assert - should terminate since 404 means runner doesn't exist on GitHub
-        expect(mockTerminateRunners).toHaveBeenCalledWith(orphanRunner.instanceId);
+        expect(mockTerminateRunners.mock.calls.flatMap((c) => c[0] as string[])).toContain(orphanRunner.instanceId);
       });
 
       it('Should handle 404 error when checking runner busy state - treat as not busy', async () => {
@@ -539,7 +539,8 @@ describe('Scale down runners', () => {
         await expect(scaleDown()).resolves.not.toThrow();
 
         // Should not terminate since the error was not a 404
-        expect(terminateRunner).not.toHaveBeenCalledWith(orphanRunner.instanceId);
+        const calledIdsAfterError = mockTerminateRunners.mock.calls.flatMap((call) => call[0] as string[]);
+        expect(calledIdsAfterError).not.toContain(orphanRunner.instanceId);
       });
 
       it(`Should ignore errors when termination orphan fails.`, async () => {
@@ -664,14 +665,15 @@ describe('Scale down runners', () => {
           await scaleDown();
 
           // assert
+          const allCalledIds = mockTerminateRunners.mock.calls.flatMap((call) => call[0] as string[]);
           const runnersToTerminate = runners.filter((r) => r.shouldBeTerminated);
           for (const toTerminate of runnersToTerminate) {
-            expect(terminateRunner).toHaveBeenCalledWith(toTerminate.instanceId);
+            expect(allCalledIds).toContain(toTerminate.instanceId);
           }
 
           const runnersNotToTerminate = runners.filter((r) => !r.shouldBeTerminated);
           for (const notTerminated of runnersNotToTerminate) {
-            expect(terminateRunner).not.toHaveBeenCalledWith(notTerminated.instanceId);
+            expect(allCalledIds).not.toContain(notTerminated.instanceId);
           }
         });
       });
@@ -809,16 +811,18 @@ function mockAwsRunners(runners: RunnerTestItem[]) {
 
 function checkNonTerminated(runners: RunnerTestItem[]) {
   const notTerminated = runners.filter((r) => !r.shouldBeTerminated);
-  for (const toTerminate of notTerminated) {
-    expect(terminateRunner).not.toHaveBeenCalledWith(toTerminate.instanceId);
+  const allCalledIds = mockTerminateRunners.mock.calls.flatMap((call) => call[0] as string[]);
+  for (const r of notTerminated) {
+    expect(allCalledIds).not.toContain(r.instanceId);
   }
 }
 
 function checkTerminated(runners: RunnerTestItem[]) {
-  const runnersToTerminate = runners.filter((r) => r.shouldBeTerminated);
-  expect(terminateRunner).toHaveBeenCalledTimes(runnersToTerminate.length);
-  for (const toTerminate of runnersToTerminate) {
-    expect(terminateRunner).toHaveBeenCalledWith(toTerminate.instanceId);
+  const idsToTerminate = runners.filter((r) => r.shouldBeTerminated).map((r) => r.instanceId);
+  if (idsToTerminate.length === 0) return;
+  const allCalledIds = mockTerminateRunners.mock.calls.flatMap((call) => call[0] as string[]);
+  for (const id of idsToTerminate) {
+    expect(allCalledIds).toContain(id);
   }
 }
 
