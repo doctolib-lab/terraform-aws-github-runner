@@ -226,7 +226,7 @@ async function evaluateAndRemoveRunners(
             idleCounter--;
             logger.info(`Runner '${ec2Runner.instanceId}' will be kept idle.`);
           } else {
-            logger.info(`Terminating all non busy runners.`);
+            logger.info(`Runner '${ec2Runner.instanceId}' exceeds idle limit, de-registering.`);
             const id = await deregisterRunner(
               ec2Runner,
               ghRunnersFiltered.map((runner: { id: number }) => runner.id),
