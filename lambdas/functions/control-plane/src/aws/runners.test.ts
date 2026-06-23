@@ -307,12 +307,10 @@ describe('terminateRunners', () => {
     });
   });
 
-  it('bisects on error and terminates good instances', async () => {
+  it('retries individually on batch error and terminates good instances', async () => {
     // i-bad always throws; i-good and i-also-good succeed
     mockEC2Client
       .on(TerminateInstancesCommand, { InstanceIds: ['i-good', 'i-bad', 'i-also-good'] })
-      .rejects(new Error('InvalidInstanceID.NotFound'))
-      .on(TerminateInstancesCommand, { InstanceIds: ['i-good', 'i-bad'] })
       .rejects(new Error('InvalidInstanceID.NotFound'))
       .on(TerminateInstancesCommand, { InstanceIds: ['i-bad'] })
       .rejects(new Error('InvalidInstanceID.NotFound'))
