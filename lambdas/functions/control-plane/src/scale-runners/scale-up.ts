@@ -10,7 +10,7 @@ import {
   getAppCount,
   getStoredInstallationId,
 } from '../github/auth';
-import { createRunner, listEC2Runners, tag, terminateRunner } from './../aws/runners';
+import { createRunner, listEC2Runners, tag, terminateRunners } from './../aws/runners';
 import { RunnerInputParameters } from './../aws/runners.d';
 import { metricGitHubAppRateLimit } from '../github/rate-limit';
 import { publishRetryMessage } from './job-retry';
@@ -281,7 +281,7 @@ export async function createRunners(
 
       for (const instanceId of failedInstances) {
         try {
-          await terminateRunner(instanceId);
+          await terminateRunners([instanceId]);
         } catch (error) {
           logger.error('Failed to terminate instance', {
             instanceId,
