@@ -307,7 +307,7 @@ async function terminateOrphan(environment: string): Promise<void> {
             await unMarkOrphan(runner.instanceId);
           }
         } else {
-          logger.info(`Terminating orphan runner '${runner.instanceId}'`);
+          logger.info(`Queuing orphan runner '${runner.instanceId}' for termination.`);
           toTerminate.push(runner.instanceId);
         }
       } catch (e) {
