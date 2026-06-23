@@ -131,11 +131,6 @@ async function terminateBatch(ec2: EC2Client, batch: string[]): Promise<void> {
   }
 }
 
-// Back-compat thin wrapper — existing single-id callers keep working.
-export async function terminateRunner(instanceId: string): Promise<void> {
-  await terminateRunners([instanceId]);
-}
-
 export async function tag(instanceId: string, tags: Tag[]): Promise<void> {
   logger.debug(`Tagging '${instanceId}'`, { tags });
   const ec2 = getTracedAWSV3Client(new EC2Client({ region: process.env.AWS_REGION }));

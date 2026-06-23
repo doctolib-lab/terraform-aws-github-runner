@@ -19,7 +19,7 @@ import 'aws-sdk-client-mock-jest/vitest';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ScaleError from './../scale-runners/ScaleError';
-import { createRunner, listEC2Runners, tag, terminateRunner, terminateRunners, untag } from './runners';
+import { createRunner, listEC2Runners, tag, terminateRunners, untag } from './runners';
 import type { RunnerInfo, RunnerInputParameters, RunnerType } from './runners.d';
 
 process.env.AWS_REGION = 'eu-east-1';
@@ -246,25 +246,6 @@ describe('list instances', () => {
         { Name: 'instance-state-name', Values: ['running', 'pending'] },
         { Name: 'tag:ghr:Application', Values: ['github-action-runner'] },
       ],
-    });
-  });
-});
-
-describe('terminate runner', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-  it('calls terminate instances with the right instance ids', async () => {
-    mockEC2Client.on(TerminateInstancesCommand).resolves({});
-    const runner: RunnerInfo = {
-      instanceId: 'instance-2',
-      owner: 'owner-2',
-      type: 'Repo',
-    };
-    await terminateRunner(runner.instanceId);
-
-    expect(mockEC2Client).toHaveReceivedCommandWith(TerminateInstancesCommand, {
-      InstanceIds: [runner.instanceId],
     });
   });
 });
