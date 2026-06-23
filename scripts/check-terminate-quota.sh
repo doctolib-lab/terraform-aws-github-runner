@@ -32,7 +32,7 @@ BUCKET1="${TERMINATE}\
 +sum:aws.usage.call_count.sum{service:ec2,resource:runinstances}.rollup(max,60)\
 +sum:aws.usage.call_count.sum{service:ec2,resource:deletenetworkinterfaces}.rollup(max,60)"
 
-echo "Window: $FROM"
+echo "Window: ${FROM#--from=}"
 echo ""
 printf "%-30s %s\n" "TerminateInstances alone:" "$(q "$TERMINATE")"
 printf "%-30s %s  (sustained limit: 540)\n" "Bucket-1 total:" "$(q "$BUCKET1")"
