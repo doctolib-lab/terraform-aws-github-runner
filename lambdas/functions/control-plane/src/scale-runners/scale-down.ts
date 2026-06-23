@@ -176,7 +176,7 @@ async function deregisterRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): P
       );
 
       if (statuses.every((status) => status == 204)) {
-        logger.info(`GitHub runner de-registered for '${ec2runner.instanceId}', queued for termination.`);
+        logger.info(`GitHub runner de-registered for '${ec2runner.instanceId}'.`);
         return ec2runner.instanceId;
       } else {
         logger.error(`Failed to de-register GitHub runner: ${statuses}`);
@@ -231,7 +231,10 @@ async function evaluateAndRemoveRunners(
               ec2Runner,
               ghRunnersFiltered.map((runner: { id: number }) => runner.id),
             );
-            if (id) toTerminate.push(id);
+            if (id) {
+              toTerminate.push(id);
+              logger.info(`Runner '${id}' queued for termination.`);
+            }
           }
         }
       } else if (bootTimeExceeded(ec2Runner)) {
