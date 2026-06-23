@@ -821,9 +821,7 @@ function checkTerminated(runners: RunnerTestItem[]) {
   const idsToTerminate = runners.filter((r) => r.shouldBeTerminated).map((r) => r.instanceId);
   if (idsToTerminate.length === 0) return;
   const allCalledIds = mockTerminateRunners.mock.calls.flatMap((call) => call[0] as string[]);
-  for (const id of idsToTerminate) {
-    expect(allCalledIds).toContain(id);
-  }
+  expect([...allCalledIds].sort()).toEqual([...idsToTerminate].sort());
 }
 
 function mockGitHubRunners(runners: RunnerTestItem[]) {
