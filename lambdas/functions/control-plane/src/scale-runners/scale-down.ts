@@ -295,16 +295,20 @@ async function terminateOrphan(environment: string): Promise<void> {
     const toTerminate: string[] = [];
 
     for (const runner of orphanRunners) {
-      if (runner.runnerId) {
-        const isOrphan = await lastChanceCheckOrphanRunner(runner);
-        if (isOrphan) {
-          toTerminate.push(runner.instanceId);
+      try {
+        if (runner.runnerId) {
+          const isOrphan = await lastChanceCheckOrphanRunner(runner);
+          if (isOrphan) {
+            toTerminate.push(runner.instanceId);
+          } else {
+            await unMarkOrphan(runner.instanceId);
+          }
         } else {
-          await unMarkOrphan(runner.instanceId);
+          logger.info(`Terminating orphan runner '${runner.instanceId}'`);
+          toTerminate.push(runner.instanceId);
         }
-      } else {
-        logger.info(`Terminating orphan runner '${runner.instanceId}'`);
-        toTerminate.push(runner.instanceId);
+      } catch (e) {
+        logger.error(`Failed to evaluate orphan runner '${runner.instanceId}', skipping.`, { error: e as Error });
       }
     }
 
