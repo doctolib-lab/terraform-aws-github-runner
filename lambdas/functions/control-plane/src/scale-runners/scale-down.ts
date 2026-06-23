@@ -139,7 +139,7 @@ function runnerMinimumTimeExceeded(runner: RunnerInfo): boolean {
 
 // Returns the instanceId when the runner was successfully de-registered from GitHub,
 // so the caller can batch-terminate in one EC2 call. Returns undefined otherwise.
-async function removeRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): Promise<string | undefined> {
+async function deregisterRunner(ec2runner: RunnerInfo, ghRunnerIds: number[]): Promise<string | undefined> {
   try {
     const githubAppClient = await getOrCreateOctokit(ec2runner);
     const runnerList = ec2runner as unknown as RunnerList;
@@ -227,7 +227,7 @@ async function evaluateAndRemoveRunners(
             logger.info(`Runner '${ec2Runner.instanceId}' will be kept idle.`);
           } else {
             logger.info(`Terminating all non busy runners.`);
-            const id = await removeRunner(
+            const id = await deregisterRunner(
               ec2Runner,
               ghRunnersFiltered.map((runner: { id: number }) => runner.id),
             );
