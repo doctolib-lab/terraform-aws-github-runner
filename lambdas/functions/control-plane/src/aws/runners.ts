@@ -102,11 +102,33 @@ function getRunnerInfo(runningInstances: DescribeInstancesResult) {
   return runners;
 }
 
-export async function terminateRunner(instanceId: string): Promise<void> {
-  logger.debug(`Runner '${instanceId}' will be terminated.`);
+// AWS TerminateInstances accepts up to 1000 InstanceIds per call; we keep batches
+// at 100 to bound payload + blast radius (a failed batch retries per id, see terminateBatch).
+const TERMINATE_BATCH_SIZE = 100;
+
+export async function terminateRunners(instanceIds: string[]): Promise<void> {
+  if (instanceIds.length === 0) return; // empty InstanceIds errors at the API
   const ec2 = getTracedAWSV3Client(new EC2Client({ region: process.env.AWS_REGION }));
-  await ec2.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }));
-  logger.debug(`Runner ${instanceId} has been terminated.`);
+  for (let i = 0; i < instanceIds.length; i += TERMINATE_BATCH_SIZE) {
+    await terminateBatch(ec2, instanceIds.slice(i, i + TERMINATE_BATCH_SIZE));
+  }
+}
+
+// Common path = 1 EC2 call for the whole batch. TerminateInstances is all-or-nothing
+// (one bad id throws InvalidInstanceID.NotFound and nothing is terminated), so on
+// error we retry each id individually — the bad one errors at size 1 and is logged.
+async function terminateBatch(ec2: EC2Client, batch: string[]): Promise<void> {
+  try {
+    await ec2.send(new TerminateInstancesCommand({ InstanceIds: batch }));
+    logger.debug(`Runners terminated: ${batch.join(', ')}`);
+  } catch (e) {
+    if (batch.length === 1) {
+      logger.error(`Failed to terminate runner '${batch[0]}'`, { error: e as Error });
+      return;
+    }
+    logger.warn(`Batch terminate failed (${batch.length} ids), retrying individually.`, { error: e as Error });
+    for (const id of batch) await terminateBatch(ec2, [id]);
+  }
 }
 
 export async function tag(instanceId: string, tags: Tag[]): Promise<void> {
