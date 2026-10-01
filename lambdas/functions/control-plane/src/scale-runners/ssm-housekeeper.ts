@@ -1,6 +1,8 @@
-import { DeleteParameterCommand, GetParametersByPathCommand, SSMClient } from '@aws-sdk/client-ssm';
+import { DeleteParametersCommand, GetParametersByPathCommand, SSMClient } from '@aws-sdk/client-ssm';
 import { logger } from '@aws-github-runner/aws-powertools-util';
 import { getTracedAWSV3Client } from '@aws-github-runner/aws-powertools-util';
+
+const MAX_DELETE_BATCH_SIZE = 10;
 
 export interface SSMCleanupOptions {
   dryRun: boolean;
@@ -42,21 +44,35 @@ export async function cleanSSMTokens(options: SSMCleanupOptions): Promise<void> 
   const minimumDate = new Date();
   minimumDate.setDate(minimumDate.getDate() - options.minimumDaysOld);
 
+  const expiredNames: string[] = [];
   for (const parameter of parameters.Parameters ?? []) {
-    if (parameter.LastModifiedDate && new Date(parameter.LastModifiedDate) < minimumDate) {
+    if (parameter.Name && parameter.LastModifiedDate && new Date(parameter.LastModifiedDate) < minimumDate) {
       logger.info(`Deleting parameter ${parameter.Name} with last modified date ${parameter.LastModifiedDate}`);
-      try {
-        if (!options.dryRun) {
-          // sleep 50ms to avoid rait limit
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          await client.send(new DeleteParameterCommand({ Name: parameter.Name }));
-        }
-      } catch (e) {
-        logger.warn(`Failed to delete parameter ${parameter.Name} with error ${(e as Error).message}`);
-        logger.debug('Failed to delete parameter', { e });
-      }
+      expiredNames.push(parameter.Name);
     } else {
       logger.debug(`Skipping parameter ${parameter.Name} with last modified date ${parameter.LastModifiedDate}`);
     }
   }
+
+  if (options.dryRun) {
+    return;
+  }
+
+  let deleted = 0;
+  for (let i = 0; i < expiredNames.length; i += MAX_DELETE_BATCH_SIZE) {
+    const batch = expiredNames.slice(i, i + MAX_DELETE_BATCH_SIZE);
+    try {
+      // sleep 50ms between batches to avoid rate limit
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const result = await client.send(new DeleteParametersCommand({ Names: batch }));
+      deleted += result.DeletedParameters?.length ?? 0;
+      if (result.InvalidParameters?.length) {
+        logger.warn(`Failed to delete parameters (not found): ${result.InvalidParameters.join(', ')}`);
+      }
+    } catch (e) {
+      logger.warn(`Failed to delete batch of ${batch.length} parameters with error ${(e as Error).message}`);
+      logger.debug('Failed to delete parameters', { e });
+    }
+  }
+  logger.info(`Deleted #${deleted} of #${expiredNames.length} expired parameters`);
 }
