@@ -3,6 +3,8 @@ import { logger } from '@aws-github-runner/aws-powertools-util';
 import { getTracedAWSV3Client } from '@aws-github-runner/aws-powertools-util';
 
 const MAX_DELETE_BATCH_SIZE = 10;
+// DeleteParameters default throughput is 3 TPS (standard tier)
+const DELETE_BATCH_DELAY_MS = 350;
 
 export interface SSMCleanupOptions {
   dryRun: boolean;
@@ -62,8 +64,7 @@ export async function cleanSSMTokens(options: SSMCleanupOptions): Promise<void> 
   for (let i = 0; i < expiredNames.length; i += MAX_DELETE_BATCH_SIZE) {
     const batch = expiredNames.slice(i, i + MAX_DELETE_BATCH_SIZE);
     try {
-      // sleep 50ms between batches to avoid rate limit
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, DELETE_BATCH_DELAY_MS));
       const result = await client.send(new DeleteParametersCommand({ Names: batch }));
       deleted += result.DeletedParameters?.length ?? 0;
       if (result.InvalidParameters?.length) {
