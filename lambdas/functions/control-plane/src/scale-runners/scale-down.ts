@@ -267,27 +267,37 @@ async function unMarkOrphan(instanceId: string): Promise<void> {
   }
 }
 
-async function lastChanceCheckOrphanRunner(runner: RunnerList): Promise<boolean> {
-  const client = await getOrCreateOctokit(runner as RunnerInfo);
-  const runnerId = parseInt(runner.runnerId || '0');
-  const ec2Instance = runner as RunnerInfo;
-  const state = await getGitHubSelfHostedRunnerState(client, ec2Instance, runnerId);
+function judgeOrphan(instanceId: string, state: { status: string; busy: boolean } | null): boolean {
   let isOrphan = false;
 
   if (state === null) {
-    logger.debug(`Runner '${runner.instanceId}' not found on GitHub, treating as orphaned.`);
+    logger.debug(`Runner '${instanceId}' not found on GitHub, treating as orphaned.`);
     isOrphan = true;
   } else {
-    logger.debug(
-      `Runner '${runner.instanceId}' is '${state.status}' and is currently '${state.busy ? 'busy' : 'idle'}'.`,
-    );
+    logger.debug(`Runner '${instanceId}' is '${state.status}' and is currently '${state.busy ? 'busy' : 'idle'}'.`);
     const isOfflineAndBusy = state.status === 'offline' && state.busy;
     if (isOfflineAndBusy) {
       isOrphan = true;
     }
   }
-  logger.info(`Runner '${runner.instanceId}' is judged to ${isOrphan ? 'be' : 'not be'} orphaned.`);
+  logger.info(`Runner '${instanceId}' is judged to ${isOrphan ? 'be' : 'not be'} orphaned.`);
   return isOrphan;
+}
+
+async function lastChanceCheckOrphanRunner(runner: RunnerList): Promise<boolean> {
+  const client = await getOrCreateOctokit(runner as RunnerInfo);
+  const runnerId = parseInt(runner.runnerId || '0');
+  const ec2Instance = runner as RunnerInfo;
+  const state = await getGitHubSelfHostedRunnerState(client, ec2Instance, runnerId);
+  return judgeOrphan(runner.instanceId, state);
+}
+
+// Runners without a stored GitHub runner id (token registration) are matched by name in a list fetched during this run.
+// A single listing can miss registered runners when the list changes while it is paged, so tagging alone is not proof.
+async function lastChanceCheckOrphanRunnerByName(runner: RunnerList): Promise<boolean> {
+  const ghRunners = await listGitHubRunners(runner as RunnerInfo);
+  const ghRunner = ghRunners.find((r) => r.name.endsWith(runner.instanceId));
+  return judgeOrphan(runner.instanceId, ghRunner ? { status: ghRunner.status, busy: ghRunner.busy } : null);
 }
 
 async function terminateOrphan(environment: string): Promise<void> {
@@ -305,8 +315,13 @@ async function terminateOrphan(environment: string): Promise<void> {
             await unMarkOrphan(runner.instanceId);
           }
         } else {
-          logger.info(`Queuing orphan runner '${runner.instanceId}' for termination.`);
-          toTerminate.push(runner.instanceId);
+          const isOrphan = await lastChanceCheckOrphanRunnerByName(runner);
+          if (isOrphan) {
+            logger.info(`Queuing orphan runner '${runner.instanceId}' for termination.`);
+            toTerminate.push(runner.instanceId);
+          } else {
+            await unMarkOrphan(runner.instanceId);
+          }
         }
       } catch (e) {
         logger.error(`Failed to evaluate orphan runner '${runner.instanceId}', skipping.`, { error: e as Error });
