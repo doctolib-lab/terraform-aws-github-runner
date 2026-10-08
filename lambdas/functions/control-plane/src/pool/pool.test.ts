@@ -4,12 +4,14 @@ import * as nock from 'nock';
 
 import { listEC2Runners } from '../aws/runners';
 import * as ghAuth from '../github/auth';
+import { resetRunnerGroupCache } from '../github/runner-group';
 import { createRunners, getGitHubEnterpriseApiUrl } from '../scale-runners/scale-up';
 import { adjust } from './pool';
-import { describe, it, expect, beforeEach, vi, MockedClass } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, MockedClass } from 'vitest';
 
 const mockOctokit = {
   paginate: vi.fn(),
+  request: vi.fn(),
   checks: { get: vi.fn() },
   actions: {
     createRegistrationTokenForOrg: vi.fn(),
@@ -256,6 +258,46 @@ describe('Test simple pool.', () => {
 
       await adjust({ poolSize: 2 });
       expect(createRunners).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('With a runner group id', () => {
+    const GROUP_ROUTE = 'GET /orgs/{org}/actions/runner-groups/{runner_group_id}/runners';
+
+    beforeEach(() => {
+      (getGitHubEnterpriseApiUrl as ReturnType<typeof vi.fn>).mockReturnValue({
+        ghesApiUrl: '',
+        ghesBaseUrl: '',
+      });
+      resetRunnerGroupCache();
+      process.env.RUNNER_GROUP_ID = '42';
+      process.env.RUNNER_GROUP_NAME = 'runners-production';
+      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-production' } });
+    });
+
+    afterEach(() => {
+      delete process.env.RUNNER_GROUP_ID;
+      delete process.env.RUNNER_GROUP_NAME;
+    });
+
+    it('counts the pool from the runners of the runner group and tops it up as usual.', async () => {
+      await adjust({ poolSize: 3 });
+
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        GROUP_ROUTE,
+        expect.objectContaining({ org: ORG, runner_group_id: 42 }),
+      );
+      expect(createRunners).toHaveBeenCalledTimes(1);
+      expect(createRunners).toHaveBeenCalledWith(expect.anything(), expect.anything(), 1, expect.anything());
+    });
+
+    it('lists the runners of the whole org when the id belongs to a group with another name.', async () => {
+      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-staging' } });
+
+      await adjust({ poolSize: 3 });
+
+      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(GROUP_ROUTE, expect.anything());
+      expect(createRunners).toHaveBeenCalledTimes(1);
     });
   });
 

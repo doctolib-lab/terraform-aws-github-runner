@@ -253,6 +253,12 @@ variable "runner_group_name" {
   default     = "Default"
 }
 
+variable "runner_group_id" {
+  description = "Id of the runner group `runner_group_name`. When set, the scale-down and pool lambdas only list the runners of that group instead of all the runners of the organization. The group must carry that name, otherwise the id is ignored."
+  type        = number
+  default     = null
+}
+
 variable "lambda_zip" {
   description = "File location of the lambda zip file."
   type        = string

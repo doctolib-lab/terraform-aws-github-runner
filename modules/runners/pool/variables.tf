@@ -42,6 +42,7 @@ variable "config" {
         name = string
       })
       group_name  = string
+      group_id    = number
       name_prefix = string
       pool_owner  = string
       role = object({

@@ -138,6 +138,7 @@ variable "multi_runner_config" {
       runner_disable_default_labels           = optional(bool, false)
       runner_extra_labels                     = optional(list(string), [])
       runner_group_name                       = optional(string, "Default")
+      runner_group_id                         = optional(number, null)
       runner_name_prefix                      = optional(string, "")
       runner_run_as                           = optional(string, "ec2-user")
       runners_maximum_count                   = number
@@ -260,6 +261,7 @@ variable "multi_runner_config" {
         runner_disable_default_labels: "Disable default labels for the runners (os, architecture and `self-hosted`). If enabled, the runner will only have the extra labels provided in `runner_extra_labels`. In case you on own start script is used, this configuration parameter needs to be parsed via SSM."
         runner_extra_labels: "Extra (custom) labels for the runners (GitHub). Separate each label by a comma. Labels checks on the webhook can be enforced by setting `multi_runner_config.matcherConfig.exactMatch`. GitHub read-only labels should not be provided."
         runner_group_name: "Name of the runner group."
+        runner_group_id: "Id of the runner group `runner_group_name`. When set, the scale-down and pool lambdas only list the runners of that group instead of all the runners of the organization. The group must carry that name, otherwise the id is ignored."
         runner_name_prefix: "Prefix for the GitHub runner name."
         runner_run_as: "Run the GitHub actions agent as user."
         runners_maximum_count: "The maximum number of runners that will be created. Setting the variable to `-1` desiables the maximum check."

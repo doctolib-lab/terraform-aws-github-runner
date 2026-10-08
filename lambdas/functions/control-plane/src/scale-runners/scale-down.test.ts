@@ -5,6 +5,7 @@ import nock from 'nock';
 
 import { RunnerInfo, RunnerList } from '../aws/runners.d';
 import * as ghAuth from '../github/auth';
+import { resetRunnerGroupCache } from '../github/runner-group';
 import { listEC2Runners, terminateRunners, tag, untag } from './../aws/runners';
 import { githubCache } from './cache';
 import { newestFirstStrategy, oldestFirstStrategy, scaleDown } from './scale-down';
@@ -24,6 +25,7 @@ const mockOctokit = {
     getSelfHostedRunnerForRepo: vi.fn(),
   },
   paginate: vi.fn(),
+  request: vi.fn(),
 };
 vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn().mockImplementation(function () {
@@ -775,6 +777,68 @@ describe('Scale down runners', () => {
       expect(runnersTest[0].launchTime).toBeUndefined();
       expect(runnersTest[1].launchTime).toBeDefined();
       expect(runnersTest[2].launchTime).not.toBeDefined();
+    });
+  });
+
+  describe('Runner group scoped listing', () => {
+    const GROUP_ROUTE = 'GET /orgs/{org}/actions/runner-groups/{runner_group_id}/runners';
+
+    beforeEach(() => {
+      resetRunnerGroupCache();
+      process.env.RUNNER_GROUP_ID = '42';
+      process.env.RUNNER_GROUP_NAME = 'runners-production';
+      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-production' } });
+    });
+
+    it('lists the runners of the runner group instead of the runners of the org, and scales down as usual.', async () => {
+      const runners = [
+        createRunnerTestData('idle-1', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES - 1, true, false, false),
+        createRunnerTestData('idle-2', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true),
+        createRunnerTestData('busy-1', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 3, true, false, false),
+      ];
+      mockGitHubRunners(runners);
+      mockAwsRunners(runners);
+
+      await scaleDown();
+
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(GROUP_ROUTE, expect.objectContaining({ runner_group_id: 42 }));
+      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForOrg,
+        expect.anything(),
+      );
+      checkTerminated(runners);
+      checkNonTerminated(runners);
+    });
+
+    it('lists all the org runners when the id belongs to a group with another name.', async () => {
+      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-staging' } });
+      const runners = [createRunnerTestData('idle-2', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true)];
+      mockGitHubRunners(runners);
+      mockAwsRunners(runners);
+
+      await scaleDown();
+
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForOrg,
+        expect.objectContaining({ per_page: 100 }),
+      );
+      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(GROUP_ROUTE, expect.anything());
+      checkTerminated(runners);
+    });
+
+    it('does not use the runner group for Repo runners.', async () => {
+      const runners = [createRunnerTestData('idle-2', 'Repo', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true)];
+      mockGitHubRunners(runners);
+      mockAwsRunners(runners);
+
+      await scaleDown();
+
+      expect(mockOctokit.request).not.toHaveBeenCalled();
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForRepo,
+        expect.anything(),
+      );
+      checkTerminated(runners);
     });
   });
 
