@@ -81,6 +81,7 @@ module "runners" {
   cloudwatch_config                                              = try(coalesce(each.value.runner_config.cloudwatch_config, var.cloudwatch_config), null)
   runner_log_files                                               = each.value.runner_config.runner_log_files
   runner_group_name                                              = each.value.runner_config.runner_group_name
+  runner_group_id                                                = each.value.runner_config.runner_group_id
   runner_name_prefix                                             = each.value.runner_config.runner_name_prefix
   parameter_store_tags                                           = var.parameter_store_tags
 

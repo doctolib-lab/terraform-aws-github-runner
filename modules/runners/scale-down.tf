@@ -34,6 +34,8 @@ resource "aws_lambda_function" "scale_down" {
       PARAMETER_GITHUB_APP_INSTALLATION_ID_NAME = join(":", [for p in var.github_app_parameters.installation_id : p != null ? p.name : ""])
       POWERTOOLS_LOGGER_LOG_EVENT               = var.log_level == "debug" ? "true" : "false"
       RUNNER_BOOT_TIME_IN_MINUTES               = var.runner_boot_time_in_minutes
+      RUNNER_GROUP_ID                           = var.runner_group_id != null ? tostring(var.runner_group_id) : ""
+      RUNNER_GROUP_NAME                         = var.runner_group_name
       SCALE_DOWN_CONFIG                         = jsonencode(var.idle_config)
       POWERTOOLS_SERVICE_NAME                   = "${var.prefix}-scale-down"
       POWERTOOLS_METRICS_NAMESPACE              = var.metrics.namespace

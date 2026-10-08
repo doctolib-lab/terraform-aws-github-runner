@@ -778,6 +778,69 @@ describe('Scale down runners', () => {
     });
   });
 
+  describe('Runner group scoped listing', () => {
+    const GROUP_ROUTE = 'GET /orgs/{org}/actions/runner-groups/{runner_group_id}/runners';
+
+    beforeEach(() => {
+      process.env.RUNNER_GROUP_ID = '42';
+      process.env.RUNNER_GROUP_NAME = 'runners-production';
+    });
+
+    it('lists the runners of the runner group instead of the runners of the org, and scales down as usual.', async () => {
+      const runners = [
+        createRunnerTestData('idle-1', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES - 1, true, false, false),
+        createRunnerTestData('idle-2', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true),
+        createRunnerTestData('busy-1', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 3, true, false, false),
+      ];
+      mockGitHubRunners(runners);
+      mockAwsRunners(runners);
+
+      await scaleDown();
+
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(GROUP_ROUTE, expect.objectContaining({ runner_group_id: 42 }));
+      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForOrg,
+        expect.anything(),
+      );
+      checkTerminated(runners);
+      checkNonTerminated(runners);
+    });
+
+    it('lists all the org runners when GitHub cannot show the group.', async () => {
+      const runners = [createRunnerTestData('idle-2', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true)];
+      mockAwsRunners(runners);
+      mockOctokit.paginate.mockImplementation(async (route: unknown) => {
+        if (route === GROUP_ROUTE) {
+          throw Object.assign(new Error('Not Found'), { status: 404 });
+        }
+        return runners.map((r) => ({ id: r.instanceId, name: r.instanceId }));
+      });
+
+      await scaleDown();
+
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForOrg,
+        expect.objectContaining({ per_page: 100 }),
+      );
+      checkTerminated(runners);
+    });
+
+    it('does not use the runner group for Repo runners.', async () => {
+      const runners = [createRunnerTestData('idle-2', 'Repo', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true)];
+      mockGitHubRunners(runners);
+      mockAwsRunners(runners);
+
+      await scaleDown();
+
+      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(GROUP_ROUTE, expect.anything());
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForRepo,
+        expect.anything(),
+      );
+      checkTerminated(runners);
+    });
+  });
+
   describe('Multi-app round-robin', () => {
     it('passes the same appIndex to createGithubInstallationAuth', async () => {
       mockedAppAuth.mockResolvedValue({

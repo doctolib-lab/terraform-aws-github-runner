@@ -15,6 +15,7 @@ import { RunnerInfo, RunnerList } from './../aws/runners.d';
 import { GhRunners, githubCache } from './cache';
 import { ScalingDownConfig, getEvictionStrategy, getIdleRunnerCount } from './scale-down-config';
 import { metricGitHubAppRateLimit } from '../github/rate-limit';
+import { listOrgRunners } from '../github/runner-group';
 import { getGitHubEnterpriseApiUrl } from './scale-up';
 
 const logger = createChildLogger('scale-down');
@@ -115,10 +116,7 @@ async function listGitHubRunners(runner: RunnerInfo): Promise<GhRunners> {
   const client = await getOrCreateOctokit(runner);
   const runners =
     runner.type === 'Org'
-      ? await client.paginate(client.actions.listSelfHostedRunnersForOrg, {
-          org: runner.owner,
-          per_page: 100,
-        })
+      ? await listOrgRunners(client, runner.owner)
       : await client.paginate(client.actions.listSelfHostedRunnersForRepo, {
           owner: runner.owner.split('/')[0],
           repo: runner.owner.split('/')[1],

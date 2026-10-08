@@ -37,6 +37,7 @@ resource "aws_lambda_function" "pool" {
       POWERTOOLS_LOGGER_LOG_EVENT               = var.config.lambda.log_level == "debug" ? "true" : "false"
       RUNNER_BOOT_TIME_IN_MINUTES               = var.config.runner.boot_time_in_minutes
       RUNNER_LABELS                             = lower(join(",", var.config.runner.labels))
+      RUNNER_GROUP_ID                           = var.config.runner.group_id != null ? tostring(var.config.runner.group_id) : ""
       RUNNER_GROUP_NAME                         = var.config.runner.group_name
       RUNNER_NAME_PREFIX                        = var.config.runner.name_prefix
       RUNNER_OWNER                              = var.config.runner.pool_owner

@@ -10,6 +10,7 @@ import {
   createOctokitClient,
   getStoredInstallationId,
 } from '../github/auth';
+import { listOrgRunners } from '../github/runner-group';
 import { createRunners, getGitHubEnterpriseApiUrl } from '../scale-runners/scale-up';
 import { validateSsmParameterStoreTags } from '../scale-runners/scale-up';
 
@@ -154,10 +155,7 @@ async function getGitHubRegisteredRunnnerStatusses(
   runnerOwner: string,
   runnerNamePrefix: string,
 ): Promise<Map<string, RunnerStatus>> {
-  const runners = await ghClient.paginate(ghClient.actions.listSelfHostedRunnersForOrg, {
-    org: runnerOwner,
-    per_page: 100,
-  });
+  const runners = await listOrgRunners(ghClient, runnerOwner);
   const runnerStatus = new Map<string, RunnerStatus>();
   for (const runner of runners) {
     runner.name = runnerNamePrefix ? runner.name.replace(runnerNamePrefix, '') : runner.name;
