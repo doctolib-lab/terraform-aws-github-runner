@@ -4,17 +4,16 @@ import * as nock from 'nock';
 
 import { listEC2Runners } from '../aws/runners';
 import * as ghAuth from '../github/auth';
-import { resetRunnerGroupCache } from '../github/runner-group';
 import { createRunners, getGitHubEnterpriseApiUrl } from '../scale-runners/scale-up';
 import { adjust } from './pool';
 import { describe, it, expect, beforeEach, afterEach, vi, MockedClass } from 'vitest';
 
 const mockOctokit = {
   paginate: vi.fn(),
-  request: vi.fn(),
   checks: { get: vi.fn() },
   actions: {
     createRegistrationTokenForOrg: vi.fn(),
+    listSelfHostedRunnersForOrg: vi.fn(),
   },
   apps: {
     getOrgInstallation: vi.fn(),
@@ -269,10 +268,8 @@ describe('Test simple pool.', () => {
         ghesApiUrl: '',
         ghesBaseUrl: '',
       });
-      resetRunnerGroupCache();
       process.env.RUNNER_GROUP_ID = '42';
       process.env.RUNNER_GROUP_NAME = 'runners-production';
-      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-production' } });
     });
 
     afterEach(() => {
@@ -291,12 +288,20 @@ describe('Test simple pool.', () => {
       expect(createRunners).toHaveBeenCalledWith(expect.anything(), expect.anything(), 1, expect.anything());
     });
 
-    it('lists the runners of the whole org when the id belongs to a group with another name.', async () => {
-      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-staging' } });
+    it('lists the runners of the whole org when GitHub cannot show the group.', async () => {
+      mockOctokit.paginate.mockImplementation(async (route: unknown) => {
+        if (route === GROUP_ROUTE) {
+          throw Object.assign(new Error('Not Found'), { status: 404 });
+        }
+        return githubRunnersRegistered;
+      });
 
       await adjust({ poolSize: 3 });
 
-      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(GROUP_ROUTE, expect.anything());
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.actions.listSelfHostedRunnersForOrg,
+        expect.objectContaining({ org: ORG }),
+      );
       expect(createRunners).toHaveBeenCalledTimes(1);
     });
   });

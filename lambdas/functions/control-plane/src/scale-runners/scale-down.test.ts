@@ -5,7 +5,6 @@ import nock from 'nock';
 
 import { RunnerInfo, RunnerList } from '../aws/runners.d';
 import * as ghAuth from '../github/auth';
-import { resetRunnerGroupCache } from '../github/runner-group';
 import { listEC2Runners, terminateRunners, tag, untag } from './../aws/runners';
 import { githubCache } from './cache';
 import { newestFirstStrategy, oldestFirstStrategy, scaleDown } from './scale-down';
@@ -25,7 +24,6 @@ const mockOctokit = {
     getSelfHostedRunnerForRepo: vi.fn(),
   },
   paginate: vi.fn(),
-  request: vi.fn(),
 };
 vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn().mockImplementation(function () {
@@ -784,10 +782,8 @@ describe('Scale down runners', () => {
     const GROUP_ROUTE = 'GET /orgs/{org}/actions/runner-groups/{runner_group_id}/runners';
 
     beforeEach(() => {
-      resetRunnerGroupCache();
       process.env.RUNNER_GROUP_ID = '42';
       process.env.RUNNER_GROUP_NAME = 'runners-production';
-      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-production' } });
     });
 
     it('lists the runners of the runner group instead of the runners of the org, and scales down as usual.', async () => {
@@ -810,11 +806,15 @@ describe('Scale down runners', () => {
       checkNonTerminated(runners);
     });
 
-    it('lists all the org runners when the id belongs to a group with another name.', async () => {
-      mockOctokit.request.mockResolvedValue({ data: { name: 'runners-staging' } });
+    it('lists all the org runners when GitHub cannot show the group.', async () => {
       const runners = [createRunnerTestData('idle-2', 'Org', MINIMUM_TIME_RUNNING_IN_MINUTES + 4, true, false, true)];
-      mockGitHubRunners(runners);
       mockAwsRunners(runners);
+      mockOctokit.paginate.mockImplementation(async (route: unknown) => {
+        if (route === GROUP_ROUTE) {
+          throw Object.assign(new Error('Not Found'), { status: 404 });
+        }
+        return runners.map((r) => ({ id: r.instanceId, name: r.instanceId }));
+      });
 
       await scaleDown();
 
@@ -822,7 +822,6 @@ describe('Scale down runners', () => {
         mockOctokit.actions.listSelfHostedRunnersForOrg,
         expect.objectContaining({ per_page: 100 }),
       );
-      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(GROUP_ROUTE, expect.anything());
       checkTerminated(runners);
     });
 
@@ -833,7 +832,7 @@ describe('Scale down runners', () => {
 
       await scaleDown();
 
-      expect(mockOctokit.request).not.toHaveBeenCalled();
+      expect(mockOctokit.paginate).not.toHaveBeenCalledWith(GROUP_ROUTE, expect.anything());
       expect(mockOctokit.paginate).toHaveBeenCalledWith(
         mockOctokit.actions.listSelfHostedRunnersForRepo,
         expect.anything(),
