@@ -17,12 +17,13 @@ stateDiagram-v2
 
         state CheckOrphanType <<choice>>
         CheckOrphanType --> HasRunnerIdTag : Has ghr github runner id
-        CheckOrphanType --> TerminateOrphan : No runner ID tag
+        CheckOrphanType --> NoRunnerIdTag : No runner ID tag
 
-        HasRunnerIdTag --> LastChanceCheck : Query GitHub API
+        HasRunnerIdTag --> LastChanceCheck : Query GitHub API by runner id
+        NoRunnerIdTag --> LastChanceCheck : Look up by name in the runner list of this run
 
         state LastChanceCheck <<choice>>
-        LastChanceCheck --> ConfirmedOrphan : Offline and busy
+        LastChanceCheck --> ConfirmedOrphan : Not found, or offline and busy
         LastChanceCheck --> FalsePositive : Exists and not problematic
 
         ConfirmedOrphan --> TerminateOrphan
