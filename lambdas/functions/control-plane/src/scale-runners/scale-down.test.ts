@@ -375,6 +375,58 @@ describe('Scale down runners', () => {
         checkNonTerminated(runners);
       });
 
+      it('Should untag orphan (Non JIT) that is present in the GitHub runner list instead of terminating it', async () => {
+        // arrange
+        const orphanRunner = createRunnerTestData('orphan-listed', type, MINIMUM_BOOT_TIME + 1, true, true, false);
+        const runners = [orphanRunner];
+
+        mockGitHubRunners(runners);
+        mockAwsRunners(runners);
+
+        // act
+        await scaleDown();
+
+        // assert
+        expect(mockUntagRunners).toHaveBeenCalledWith(orphanRunner.instanceId, [{ Key: 'ghr:orphan', Value: 'true' }]);
+        checkTerminated(runners);
+        checkNonTerminated(runners);
+      });
+
+      it('Should terminate orphan (Non JIT) that is listed as offline and busy', async () => {
+        // arrange
+        const orphanRunner = createRunnerTestData('orphan-zombie', type, MINIMUM_BOOT_TIME + 1, true, true, true);
+        const runners = [orphanRunner];
+
+        mockOctokit.paginate.mockResolvedValue([
+          { id: orphanRunner.instanceId, name: orphanRunner.instanceId, status: 'offline', busy: true },
+        ]);
+        mockAwsRunners(runners);
+
+        // act
+        await scaleDown();
+
+        // assert
+        expect(mockUntagRunners).not.toHaveBeenCalled();
+        checkTerminated(runners);
+        checkNonTerminated(runners);
+      });
+
+      it('Should not terminate orphan (Non JIT) when the GitHub runner list cannot be fetched', async () => {
+        // arrange
+        const orphanRunner = createRunnerTestData('orphan-list-error', type, MINIMUM_BOOT_TIME + 1, false, true, false);
+        const runners = [orphanRunner];
+
+        mockOctokit.paginate.mockRejectedValue(new Error('list failed'));
+        mockAwsRunners(runners);
+
+        // act
+        await scaleDown();
+
+        // assert
+        checkTerminated(runners);
+        checkNonTerminated(runners);
+      });
+
       it('Should test if orphaned runner, untag if online and busy, else terminate (JIT)', async () => {
         // arrange
         const orphanRunner = createRunnerTestData(
