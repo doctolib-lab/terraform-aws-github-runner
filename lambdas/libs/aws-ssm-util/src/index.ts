@@ -78,12 +78,25 @@ export async function putParameter(
   parameter_name: string,
   parameter_value: string,
   secure: boolean,
-  options: { tags?: Tag[] } = {},
+  options: { tags?: Tag[]; expiresInMinutes?: number } = {},
 ): Promise<void> {
   const client = getTracedAWSV3Client(new SSMClient({ region: process.env.AWS_REGION }));
 
   // Determine tier based on parameter_value size
   const valueSizeBytes = Buffer.byteLength(parameter_value, 'utf8');
+
+  // Parameter policies need the Advanced tier. SSM deletes the parameter once the expiration timestamp has passed.
+  const expiresInMinutes =
+    options.expiresInMinutes && options.expiresInMinutes > 0 ? options.expiresInMinutes : undefined;
+  const policies = expiresInMinutes
+    ? JSON.stringify([
+        {
+          Type: 'Expiration',
+          Version: '1.0',
+          Attributes: { Timestamp: new Date(Date.now() + expiresInMinutes * 60_000).toISOString() },
+        },
+      ])
+    : undefined;
 
   await client.send(
     new PutParameterCommand({
@@ -91,7 +104,8 @@ export async function putParameter(
       Value: parameter_value,
       Type: secure ? 'SecureString' : 'String',
       Tags: options.tags,
-      Tier: valueSizeBytes >= SSM_ADVANCED_TIER_THRESHOLD ? 'Advanced' : 'Standard',
+      Tier: policies || valueSizeBytes >= SSM_ADVANCED_TIER_THRESHOLD ? 'Advanced' : 'Standard',
+      Policies: policies,
     }),
   );
 }

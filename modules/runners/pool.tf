@@ -35,6 +35,7 @@ module "pool" {
       timeout                        = var.pool_lambda_timeout
       zip                            = local.lambda_zip
       parameter_store_tags           = local.parameter_store_tags
+      ssm_token_expiration_minutes   = var.ssm_token_expiration_minutes
     }
     pool                      = var.pool_config
     role_path                 = local.role_path

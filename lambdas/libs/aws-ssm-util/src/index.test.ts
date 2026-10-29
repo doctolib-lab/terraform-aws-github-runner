@@ -103,6 +103,34 @@ describe('Test getParameter and putParameter', () => {
     });
   });
 
+  it('Puts a parameter with an expiration policy as Advanced tier', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-29T10:00:00.000Z'));
+    mockSSMClient.on(PutParameterCommand).resolves({ $metadata: { httpStatusCode: 200 } });
+
+    await putParameter('testParam', 'test', true, { expiresInMinutes: 15 });
+    vi.useRealTimers();
+
+    expect(mockSSMClient).toHaveReceivedCommandWith(PutParameterCommand, {
+      Name: 'testParam',
+      Type: 'SecureString',
+      Tier: 'Advanced',
+      Policies: JSON.stringify([
+        { Type: 'Expiration', Version: '1.0', Attributes: { Timestamp: '2026-10-29T10:15:00.000Z' } },
+      ]),
+    });
+  });
+
+  it('Puts a parameter without expiration policy as Standard tier', async () => {
+    mockSSMClient.on(PutParameterCommand).resolves({ $metadata: { httpStatusCode: 200 } });
+
+    await putParameter('testParam', 'test', true, { expiresInMinutes: 0 });
+
+    expect(mockSSMClient).toHaveReceivedCommandWith(PutParameterCommand, { Name: 'testParam', Tier: 'Standard' });
+    const calls = mockSSMClient.commandCalls(PutParameterCommand);
+    expect(calls[calls.length - 1].args[0].input.Policies).toBeUndefined();
+  });
+
   it('Puts parameters as SecureString', async () => {
     // Arrange
     const parameterValue = 'test';

@@ -41,6 +41,7 @@ vi.mock('./../github/auth', async () => ({
 vi.mock('../scale-runners/scale-up', async () => ({
   scaleUp: vi.fn(),
   createRunners: vi.fn(),
+  parseSsmTokenExpirationMinutes: vi.fn(),
   getGitHubEnterpriseApiUrl: vi.fn().mockReturnValue({
     ghesApiUrl: '',
     ghesBaseUrl: '',

@@ -59,6 +59,7 @@ interface CreateGitHubRunnerConfig {
   ssmTokenPath: string;
   ssmConfigPath: string;
   ssmParameterStoreTags: { Key: string; Value: string }[];
+  ssmTokenExpirationMinutes?: number;
 }
 
 interface CreateEC2RunnerConfig {
@@ -96,6 +97,17 @@ function generateRunnerServiceConfig(githubRunnerConfig: CreateGitHubRunnerConfi
   }
 
   return config;
+}
+
+export function parseSsmTokenExpirationMinutes(value: string | undefined): number | undefined {
+  if (!value || value.trim() === '') {
+    return undefined;
+  }
+  const minutes = Number(value);
+  if (!Number.isInteger(minutes) || minutes < 1) {
+    throw new Error(`Invalid SSM_TOKEN_EXPIRATION_MINUTES "${value}", it must be a positive integer`);
+  }
+  return minutes;
 }
 
 export function validateSsmParameterStoreTags(tagsJson: string): { Key: string; Value: string }[] {
@@ -330,6 +342,7 @@ export async function scaleUp(payloads: ActionRequestMessageSQS[]): Promise<stri
     process.env.SSM_PARAMETER_STORE_TAGS && process.env.SSM_PARAMETER_STORE_TAGS.trim() !== ''
       ? validateSsmParameterStoreTags(process.env.SSM_PARAMETER_STORE_TAGS)
       : [];
+  const ssmTokenExpirationMinutes = parseSsmTokenExpirationMinutes(process.env.SSM_TOKEN_EXPIRATION_MINUTES);
   const scaleErrors = JSON.parse(process.env.SCALE_ERRORS) as [string];
 
   const { ghesApiUrl, ghesBaseUrl } = getGitHubEnterpriseApiUrl();
@@ -505,6 +518,7 @@ export async function scaleUp(payloads: ActionRequestMessageSQS[]): Promise<stri
         ssmTokenPath,
         ssmConfigPath,
         ssmParameterStoreTags,
+        ssmTokenExpirationMinutes,
       },
       {
         ec2instanceCriteria: {
@@ -619,6 +633,7 @@ async function createRegistrationTokenConfig(
   for (const instance of instances) {
     await putParameter(`${githubRunnerConfig.ssmTokenPath}/${instance}`, runnerServiceConfig.join(' '), true, {
       tags: [{ Key: 'InstanceId', Value: instance }, ...githubRunnerConfig.ssmParameterStoreTags],
+      expiresInMinutes: githubRunnerConfig.ssmTokenExpirationMinutes,
     });
     if (isDelay) {
       // Delay to prevent AWS ssm rate limits by being within the max throughput limit
@@ -691,6 +706,7 @@ async function createJitConfig(
       });
       await putParameter(`${githubRunnerConfig.ssmTokenPath}/${instance}`, runnerConfig.data.encoded_jit_config, true, {
         tags: [{ Key: 'InstanceId', Value: instance }, ...githubRunnerConfig.ssmParameterStoreTags],
+        expiresInMinutes: githubRunnerConfig.ssmTokenExpirationMinutes,
       });
       if (isDelay) {
         // Delay to prevent AWS ssm rate limits by being within the max throughput limit

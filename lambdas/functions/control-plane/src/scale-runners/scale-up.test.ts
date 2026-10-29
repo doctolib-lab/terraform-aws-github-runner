@@ -326,6 +326,20 @@ describe('scaleUp with GHES', () => {
       });
     });
 
+    it('gives the start runner config an expiration when SSM_TOKEN_EXPIRATION_MINUTES is set', async () => {
+      process.env.SSM_TOKEN_EXPIRATION_MINUTES = '15';
+      try {
+        await scaleUpModule.scaleUp(TEST_DATA);
+      } finally {
+        delete process.env.SSM_TOKEN_EXPIRATION_MINUTES;
+      }
+      expect(mockSSMClient).toHaveReceivedCommandWith(PutParameterCommand, {
+        Name: '/github-action-runners/default/runners/config/i-12345',
+        Tier: 'Advanced',
+        Policies: expect.stringContaining('"Type":"Expiration"'),
+      });
+    });
+
     it('create start runner config for non-ephemeral runners ', async () => {
       process.env.ENABLE_EPHEMERAL_RUNNERS = 'false';
       process.env.RUNNERS_MAXIMUM_COUNT = '2';
@@ -2163,3 +2177,18 @@ function defaultSSMGetParameterMockImpl() {
     }
   });
 }
+
+describe('parseSsmTokenExpirationMinutes', () => {
+  it('is disabled when unset or empty', () => {
+    expect(scaleUpModule.parseSsmTokenExpirationMinutes(undefined)).toBeUndefined();
+    expect(scaleUpModule.parseSsmTokenExpirationMinutes('')).toBeUndefined();
+  });
+
+  it('reads a positive number of minutes', () => {
+    expect(scaleUpModule.parseSsmTokenExpirationMinutes('15')).toBe(15);
+  });
+
+  it.each(['0', '-5', '1.5', 'abc'])('refuses %s', (value) => {
+    expect(() => scaleUpModule.parseSsmTokenExpirationMinutes(value)).toThrow('SSM_TOKEN_EXPIRATION_MINUTES');
+  });
+});

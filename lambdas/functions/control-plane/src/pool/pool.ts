@@ -12,7 +12,7 @@ import {
 } from '../github/auth';
 import { listOrgRunners } from '../github/runner-group';
 import { createRunners, getGitHubEnterpriseApiUrl } from '../scale-runners/scale-up';
-import { validateSsmParameterStoreTags } from '../scale-runners/scale-up';
+import { parseSsmTokenExpirationMinutes, validateSsmParameterStoreTags } from '../scale-runners/scale-up';
 
 const logger = createChildLogger('pool');
 
@@ -52,6 +52,7 @@ export async function adjust(event: PoolEvent): Promise<void> {
     process.env.SSM_PARAMETER_STORE_TAGS && process.env.SSM_PARAMETER_STORE_TAGS.trim() !== ''
       ? validateSsmParameterStoreTags(process.env.SSM_PARAMETER_STORE_TAGS)
       : [];
+  const ssmTokenExpirationMinutes = parseSsmTokenExpirationMinutes(process.env.SSM_TOKEN_EXPIRATION_MINUTES);
   const scaleErrors = JSON.parse(process.env.SCALE_ERRORS) as [string];
 
   const { ghesApiUrl, ghesBaseUrl } = getGitHubEnterpriseApiUrl();
@@ -102,6 +103,7 @@ export async function adjust(event: PoolEvent): Promise<void> {
         ssmTokenPath,
         ssmConfigPath,
         ssmParameterStoreTags,
+        ssmTokenExpirationMinutes,
       },
       {
         ec2instanceCriteria: {
