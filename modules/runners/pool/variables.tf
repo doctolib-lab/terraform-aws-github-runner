@@ -18,6 +18,7 @@ variable "config" {
       zip                            = string
       subnet_ids                     = list(string)
       parameter_store_tags           = string
+      ssm_token_expiration_minutes   = number
     })
     tags = map(string)
     ghes = object({

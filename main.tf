@@ -249,6 +249,7 @@ module "runners" {
   runner_group_name                                              = var.runner_group_name
   runner_name_prefix                                             = var.runner_name_prefix
   parameter_store_tags                                           = var.parameter_store_tags
+  ssm_token_expiration_minutes                                   = var.ssm_token_expiration_minutes
 
   scale_up_reserved_concurrent_executions = var.scale_up_reserved_concurrent_executions
 

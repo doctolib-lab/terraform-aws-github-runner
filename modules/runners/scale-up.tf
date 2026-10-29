@@ -59,6 +59,7 @@ resource "aws_lambda_function" "scale_up" {
       SSM_TOKEN_PATH                            = local.token_path
       SSM_CONFIG_PATH                           = "${var.ssm_paths.root}/${var.ssm_paths.config}"
       SSM_PARAMETER_STORE_TAGS                  = local.parameter_store_tags
+      SSM_TOKEN_EXPIRATION_MINUTES              = var.ssm_token_expiration_minutes == null ? "" : tostring(var.ssm_token_expiration_minutes)
       SUBNET_IDS                                = join(",", var.subnet_ids)
       ENABLE_ON_DEMAND_FAILOVER_FOR_ERRORS      = jsonencode(var.enable_on_demand_failover_for_errors)
       SCALE_ERRORS                              = jsonencode(var.scale_errors)

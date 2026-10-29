@@ -1079,3 +1079,14 @@ variable "parameter_store_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ssm_token_expiration_minutes" {
+  description = "When set, the runner registration tokens (or JIT configs) written to SSM Parameter Store use the Advanced tier with an Expiration policy and are deleted by SSM after this many minutes, so runners do not have to delete them. Null keeps Standard parameters that are cleaned by the SSM housekeeper."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.ssm_token_expiration_minutes == null ? true : var.ssm_token_expiration_minutes >= 1 && floor(var.ssm_token_expiration_minutes) == var.ssm_token_expiration_minutes
+    error_message = "ssm_token_expiration_minutes must be null or a whole number of minutes, at least 1."
+  }
+}
