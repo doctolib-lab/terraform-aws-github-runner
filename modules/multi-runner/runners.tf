@@ -84,6 +84,7 @@ module "runners" {
   runner_group_id                                                = each.value.runner_config.runner_group_id
   runner_name_prefix                                             = each.value.runner_config.runner_name_prefix
   parameter_store_tags                                           = var.parameter_store_tags
+  ssm_token_expiration_minutes                                   = var.ssm_token_expiration_minutes
 
   scale_up_reserved_concurrent_executions = each.value.runner_config.scale_up_reserved_concurrent_executions
 
