@@ -21,69 +21,56 @@ import * as Runners from './runners.d';
 
 const logger = createChildLogger('runners');
 
-interface Ec2Filter {
-  Name: string;
-  Values: string[];
-}
-
 export async function listEC2Runners(
   filters: Runners.ListRunnerFilters | undefined = undefined,
 ): Promise<Runners.RunnerList[]> {
-  const ec2Filters = constructFilters(filters);
-  const runners: Runners.RunnerList[] = [];
-  for (const filter of ec2Filters) {
-    runners.push(...(await getRunners(filter)));
-  }
-  return runners;
+  const statuses = filters?.statuses ? filters.statuses : ['running', 'pending'];
+  return getRunners(statuses, requiredTags(filters));
 }
 
-function constructFilters(filters?: Runners.ListRunnerFilters): Ec2Filter[][] {
-  const ec2Statuses = filters?.statuses ? filters.statuses : ['running', 'pending'];
-  const ec2Filters: Ec2Filter[][] = [];
-  const ec2FiltersBase = [{ Name: 'instance-state-name', Values: ec2Statuses }];
-  if (filters) {
-    if (filters.environment !== undefined) {
-      ec2FiltersBase.push({ Name: 'tag:ghr:environment', Values: [filters.environment] });
-    }
-    if (filters.runnerType && filters.runnerOwner) {
-      ec2FiltersBase.push({ Name: `tag:ghr:Type`, Values: [filters.runnerType] });
-      ec2FiltersBase.push({ Name: `tag:ghr:Owner`, Values: [filters.runnerOwner] });
-    }
-    if (filters.orphan) {
-      ec2FiltersBase.push({ Name: 'tag:ghr:orphan', Values: ['true'] });
-    }
+function requiredTags(filters?: Runners.ListRunnerFilters): Record<string, string> {
+  const tags: Record<string, string> = { 'ghr:Application': 'github-action-runner' };
+  if (filters?.environment !== undefined) {
+    tags['ghr:environment'] = filters.environment;
   }
-
-  for (const key of ['tag:ghr:Application']) {
-    const filter = [...ec2FiltersBase];
-    filter.push({ Name: key, Values: ['github-action-runner'] });
-    ec2Filters.push(filter);
+  if (filters?.runnerType && filters.runnerOwner) {
+    tags['ghr:Type'] = filters.runnerType;
+    tags['ghr:Owner'] = filters.runnerOwner;
   }
-  return ec2Filters;
+  if (filters?.orphan) {
+    tags['ghr:orphan'] = 'true';
+  }
+  return tags;
 }
 
-async function getRunners(ec2Filters: Ec2Filter[]): Promise<Runners.RunnerList[]> {
+async function getRunners(statuses: string[], tags: Record<string, string>): Promise<Runners.RunnerList[]> {
   const ec2 = getTracedAWSV3Client(new EC2Client({ region: process.env.AWS_REGION }));
   const runners: Runners.RunnerList[] = [];
   let nextToken;
   let hasNext = true;
   while (hasNext) {
     const instances: DescribeInstancesResult = await ec2.send(
-      new DescribeInstancesCommand({ Filters: ec2Filters, NextToken: nextToken }),
+      new DescribeInstancesCommand({
+        Filters: [{ Name: 'instance-state-name', Values: statuses }],
+        NextToken: nextToken,
+      }),
     );
     hasNext = instances.NextToken ? true : false;
     nextToken = instances.NextToken;
-    runners.push(...getRunnerInfo(instances));
+    runners.push(...getRunnerInfo(instances, tags));
   }
   return runners;
 }
 
-function getRunnerInfo(runningInstances: DescribeInstancesResult) {
+function getRunnerInfo(runningInstances: DescribeInstancesResult, tags: Record<string, string>) {
   const runners: Runners.RunnerList[] = [];
   if (runningInstances.Reservations) {
     for (const r of runningInstances.Reservations) {
       if (r.Instances) {
         for (const i of r.Instances) {
+          if (!Object.entries(tags).every(([key, value]) => i.Tags?.some((t) => t.Key === key && t.Value === value))) {
+            continue;
+          }
           runners.push({
             instanceId: i.InstanceId as string,
             launchTime: i.LaunchTime,
